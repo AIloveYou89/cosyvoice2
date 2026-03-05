@@ -19,8 +19,9 @@ RUN git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git /workspac
     && cd /workspace/CosyVoice \
     && git submodule update --init --recursive
 
-# Install CosyVoice dependencies
+# Install CosyVoice dependencies (skip openai-whisper — not needed for TTS)
 RUN cd /workspace/CosyVoice \
+    && sed -i '/openai-whisper/d' requirements.txt \
     && pip install --no-cache-dir -r requirements.txt
 
 # Install RunPod + extra deps
