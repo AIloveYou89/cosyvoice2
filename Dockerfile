@@ -6,9 +6,10 @@ ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1 PYTHONUNBUFFERED=1
 
 WORKDIR /workspace
 
-# System deps (sox needed for CosyVoice audio processing)
+# System deps (sox for CosyVoice, g++ for pyworld C extension)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     sox libsox-dev git git-lfs ffmpeg libsndfile1 \
+    g++ build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 # Torchaudio match torch 2.6
