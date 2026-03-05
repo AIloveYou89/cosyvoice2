@@ -1,13 +1,18 @@
 # Dockerfile - CosyVoice2 RunPod Serverless
-# Base: PyTorch 2.5 + CUDA 12.4
-FROM runpod/pytorch:2.5.1-py3.10-cuda12.4.1-devel-ubuntu22.04
+# Base: PyTorch 2.6 + CUDA 12.6 (same as SparkTTS)
+FROM pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime
+
+ENV DEBIAN_FRONTEND=noninteractive PIP_NO_CACHE_DIR=1 PYTHONUNBUFFERED=1
 
 WORKDIR /workspace
 
-# System deps
-RUN apt-get update && apt-get install -y \
-    sox libsox-dev git git-lfs ffmpeg \
+# System deps (sox needed for CosyVoice audio processing)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    sox libsox-dev git git-lfs ffmpeg libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
+
+# Torchaudio match torch 2.6
+RUN pip install --upgrade pip && pip install torchaudio==2.6.0
 
 # Clone CosyVoice repo (with submodules)
 RUN git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git /workspace/CosyVoice \
