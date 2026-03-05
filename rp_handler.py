@@ -23,8 +23,12 @@ logger = logging.getLogger(__name__)
 MODEL_DIR = os.getenv("MODEL_DIR", "pretrained_models/CosyVoice2-0.5B")
 HF_TOKEN = os.getenv("HF_TOKEN", "")
 
-assert torch.cuda.is_available(), "CUDA/GPU not available."
-DEVICE = "cuda"
+if torch.cuda.is_available():
+    DEVICE = "cuda"
+    logger.info(f"[INIT] CUDA available: {torch.cuda.get_device_name(0)}")
+else:
+    DEVICE = "cpu"
+    logger.error("[INIT] CUDA/GPU NOT available — will be very slow!")
 TARGET_SR = 22050  # CosyVoice2 default sample rate
 
 # ============================================================
@@ -257,77 +261,103 @@ OUT_DIR = os.path.join(NV_ROOT, "jobs") if NV_ROOT else "/tmp/jobs"
 # ============================================================
 # MODEL LOADING — CosyVoice2
 # ============================================================
-logger.info(f"[INIT] Loading CosyVoice2 from {MODEL_DIR}")
-init_start = time.time()
-
-# Download model if not exists
-model_path = MODEL_DIR
-if not os.path.exists(model_path):
-    # Check Network Volume first
-    nv_model = os.path.join(NV_ROOT, MODEL_DIR) if NV_ROOT else None
-    if nv_model and os.path.exists(nv_model):
-        model_path = nv_model
-        logger.info(f"[INIT] Using model from Network Volume: {model_path}")
-    else:
-        logger.info("[INIT] Downloading model from HuggingFace...")
-        from huggingface_hub import snapshot_download
-        model_path = snapshot_download(
-            'FunAudioLLM/CosyVoice2-0.5B',
-            local_dir=MODEL_DIR,
-            token=HF_TOKEN if HF_TOKEN else None
-        )
-        logger.info(f"[INIT] Model downloaded to: {model_path}")
-
-# Add CosyVoice to path
-COSYVOICE_ROOT = os.getenv("COSYVOICE_ROOT", "/workspace/CosyVoice")
-if os.path.exists(COSYVOICE_ROOT):
-    sys.path.insert(0, COSYVOICE_ROOT)
-    matcha_path = os.path.join(COSYVOICE_ROOT, "third_party/Matcha-TTS")
-    if os.path.exists(matcha_path):
-        sys.path.insert(0, matcha_path)
-    logger.info(f"[INIT] CosyVoice code path: {COSYVOICE_ROOT}")
-else:
-    logger.error(f"[INIT] CosyVoice code not found at {COSYVOICE_ROOT}")
-    logger.error("[INIT] Set COSYVOICE_ROOT env or clone repo to /workspace/CosyVoice")
-
-from cosyvoice.cli.cosyvoice import AutoModel as CosyAutoModel
-
-cosyvoice = CosyAutoModel(model_dir=model_path)
-
-PROMPT_PATH = find_prompt_audio()
-if PROMPT_PATH:
-    logger.info(f"[INIT] Prompt audio ready: {PROMPT_PATH}")
-else:
-    logger.warning("[INIT] No prompt audio — will use default voice")
-
-# Prompt text cho voice clone (mô tả giọng mẫu)
+cosyvoice = None
+PROMPT_PATH = None
 DEFAULT_PROMPT_TEXT = os.getenv(
     "PROMPT_TEXT",
     "Tôi là chủ sở hữu giọng nói này."
 )
 
-init_time = time.time() - init_start
-logger.info(f"[INIT] Model loaded in {init_time:.2f}s")
-
-# Warm-up
-logger.info("[INIT] Warming up...")
 try:
-    for i, j in enumerate(cosyvoice.inference_zero_shot(
-        ". xin chào.",
-        DEFAULT_PROMPT_TEXT,
-        PROMPT_PATH or './asset/zero_shot_prompt.wav'
-    )):
-        pass  # Just warm up the pipeline
-    torch.cuda.empty_cache()
-    logger.info("[INIT] Warmup complete")
+    logger.info(f"[INIT] Loading CosyVoice2 from {MODEL_DIR}")
+    init_start = time.time()
+
+    # Download model if not exists
+    model_path = MODEL_DIR
+    if not os.path.exists(model_path):
+        # Check Network Volume first
+        nv_model = os.path.join(NV_ROOT, MODEL_DIR) if NV_ROOT else None
+        if nv_model and os.path.exists(nv_model):
+            model_path = nv_model
+            logger.info(f"[INIT] Using model from Network Volume: {model_path}")
+        else:
+            logger.info("[INIT] Downloading model from HuggingFace...")
+            from huggingface_hub import snapshot_download
+            model_path = snapshot_download(
+                'FunAudioLLM/CosyVoice2-0.5B',
+                local_dir=MODEL_DIR,
+                token=HF_TOKEN if HF_TOKEN else None
+            )
+            logger.info(f"[INIT] Model downloaded to: {model_path}")
+
+    # List model dir contents for debugging
+    if os.path.exists(model_path):
+        logger.info(f"[INIT] Model dir contents: {os.listdir(model_path)}")
+    else:
+        logger.error(f"[INIT] Model path does NOT exist: {model_path}")
+
+    # Add CosyVoice to path
+    COSYVOICE_ROOT = os.getenv("COSYVOICE_ROOT", "/workspace/CosyVoice")
+    if os.path.exists(COSYVOICE_ROOT):
+        sys.path.insert(0, COSYVOICE_ROOT)
+        matcha_path = os.path.join(COSYVOICE_ROOT, "third_party/Matcha-TTS")
+        if os.path.exists(matcha_path):
+            sys.path.insert(0, matcha_path)
+        logger.info(f"[INIT] CosyVoice code path: {COSYVOICE_ROOT}")
+        logger.info(f"[INIT] CosyVoice dir contents: {os.listdir(COSYVOICE_ROOT)}")
+    else:
+        logger.error(f"[INIT] CosyVoice code not found at {COSYVOICE_ROOT}")
+        raise RuntimeError(f"CosyVoice code not found at {COSYVOICE_ROOT}")
+
+    logger.info("[INIT] Importing CosyVoice AutoModel...")
+    from cosyvoice.cli.cosyvoice import AutoModel as CosyAutoModel
+    logger.info("[INIT] Import successful, initializing model...")
+
+    cosyvoice = CosyAutoModel(model_dir=model_path, load_jit=False, load_trt=False)
+    logger.info(f"[INIT] Model type: {type(cosyvoice)}")
+
+    PROMPT_PATH = find_prompt_audio()
+    if PROMPT_PATH:
+        logger.info(f"[INIT] Prompt audio ready: {PROMPT_PATH}")
+    else:
+        logger.warning("[INIT] No prompt audio — will use default voice")
+
+    init_time = time.time() - init_start
+    logger.info(f"[INIT] Model loaded in {init_time:.2f}s")
+
+    # Warm-up (skip if no prompt audio — avoid crash on missing default wav)
+    if PROMPT_PATH:
+        logger.info("[INIT] Warming up with prompt audio...")
+        try:
+            for i, j in enumerate(cosyvoice.inference_zero_shot(
+                ". xin chào.",
+                DEFAULT_PROMPT_TEXT,
+                PROMPT_PATH,
+                stream=False
+            )):
+                pass
+            torch.cuda.empty_cache()
+            logger.info("[INIT] Warmup complete")
+        except Exception as e:
+            logger.warning(f"[INIT] Warmup failed (non-critical): {e}")
+    else:
+        logger.info("[INIT] Skipping warmup (no prompt audio)")
+
 except Exception as e:
-    logger.warning(f"[INIT] Warmup failed (non-critical): {e}")
+    logger.error(f"[INIT] FATAL: Model loading failed: {e}", exc_info=True)
+    import traceback
+    traceback.print_exc()
+    # Don't exit — let RunPod start so we can see error in logs
+    # Handler will return error if cosyvoice is None
 
 # ============================================================
 # HANDLER
 # ============================================================
 def handler(job):
     job_start = time.time()
+
+    if cosyvoice is None:
+        return {"error": "Model failed to load. Check container logs for details."}
 
     inp = job.get("input", {}) or {}
     text = (inp.get("text") or "").strip()
@@ -399,7 +429,8 @@ def handler(job):
                 for i, j in enumerate(cosyvoice.inference_zero_shot(
                     chunk,
                     prompt_text,
-                    active_prompt_path
+                    active_prompt_path,
+                    stream=False
                 )):
                     audio_tensor = j['tts_speech']
                     chunk_sr = cosyvoice.sample_rate
@@ -411,7 +442,8 @@ def handler(job):
                 for i, j in enumerate(cosyvoice.inference_instruct2(
                     chunk,
                     instruction,
-                    active_prompt_path
+                    active_prompt_path,
+                    stream=False
                 )):
                     audio_tensor = j['tts_speech']
                     chunk_sr = cosyvoice.sample_rate
@@ -422,7 +454,8 @@ def handler(job):
             else:  # cross_lingual fallback
                 for i, j in enumerate(cosyvoice.inference_cross_lingual(
                     chunk,
-                    active_prompt_path or './asset/zero_shot_prompt.wav'
+                    active_prompt_path or './asset/zero_shot_prompt.wav',
+                    stream=False
                 )):
                     audio_tensor = j['tts_speech']
                     chunk_sr = cosyvoice.sample_rate
