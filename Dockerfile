@@ -20,20 +20,25 @@ RUN git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git /workspac
     && cd /workspace/CosyVoice \
     && git submodule update --init --recursive
 
-# Install CosyVoice dependencies (skip openai-whisper — not needed for TTS)
+# Install CosyVoice dependencies
+# Strip packages not needed for TTS inference (cause import crashes on runtime image)
 RUN cd /workspace/CosyVoice \
     && sed -i '/openai-whisper/d' requirements.txt \
+    && sed -i '/deepspeed/d' requirements.txt \
     && pip install --no-cache-dir -r requirements.txt
 
 # Install RunPod + extra deps
 COPY requirements.txt /workspace/app/requirements.txt
 RUN pip install --no-cache-dir -r /workspace/app/requirements.txt
 
-# Fix: CosyVoice deps may install torchvision incompatible with torch 2.6.
-# torchvision is NOT needed for TTS — only pulled in by transformers.
-# Force correct torch stack + remove torchvision to avoid register_fake error.
+# Fix: remove packages that crash on runtime image (no CUDA_HOME/nvcc)
+# deepspeed needs CUDA_HOME, torchvision incompatible with torch 2.6
+# Neither is needed for CosyVoice TTS inference
 RUN pip install --no-cache-dir torch==2.6.0 torchaudio==2.6.0 \
-    && pip uninstall -y torchvision
+    && pip uninstall -y torchvision deepspeed 2>/dev/null; true
+
+# Smoke test: verify CosyVoice imports work
+RUN python3 -c "from cosyvoice.cli.cosyvoice import AutoModel; print('Import OK')"
 
 # Download model (cached in Docker layer)
 RUN python3 -c "\

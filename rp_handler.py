@@ -275,8 +275,8 @@ try:
     # Download model if not exists
     model_path = MODEL_DIR
     if not os.path.exists(model_path):
-        # Check Network Volume first
-        nv_model = os.path.join(NV_ROOT, MODEL_DIR) if NV_ROOT else None
+        # Check Network Volume first (only if MODEL_DIR is relative)
+        nv_model = os.path.join(NV_ROOT, os.path.basename(MODEL_DIR)) if NV_ROOT else None
         if nv_model and os.path.exists(nv_model):
             model_path = nv_model
             logger.info(f"[INIT] Using model from Network Volume: {model_path}")
@@ -454,7 +454,7 @@ def handler(job):
             else:  # cross_lingual fallback
                 for i, j in enumerate(cosyvoice.inference_cross_lingual(
                     chunk,
-                    active_prompt_path or './asset/zero_shot_prompt.wav',
+                    active_prompt_path or os.path.join(os.getenv("COSYVOICE_ROOT", "/workspace/CosyVoice"), 'asset/zero_shot_prompt.wav'),
                     stream=False
                 )):
                     audio_tensor = j['tts_speech']
