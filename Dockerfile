@@ -21,15 +21,19 @@ RUN git clone --recursive https://github.com/FunAudioLLM/CosyVoice.git /workspac
     && git submodule update --init --recursive
 
 # Install CosyVoice dependencies (skip openai-whisper — not needed for TTS)
-# Fix torchvision to match torch 2.6.0 (CosyVoice deps may install wrong version)
 RUN cd /workspace/CosyVoice \
     && sed -i '/openai-whisper/d' requirements.txt \
-    && pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir torchvision==0.21.0
+    && pip install --no-cache-dir -r requirements.txt
 
 # Install RunPod + extra deps
 COPY requirements.txt /workspace/app/requirements.txt
 RUN pip install --no-cache-dir -r /workspace/app/requirements.txt
+
+# Fix: CosyVoice deps may install torchvision incompatible with torch 2.6.
+# torchvision is NOT needed for TTS — only pulled in by transformers.
+# Force correct torch stack + remove torchvision to avoid register_fake error.
+RUN pip install --no-cache-dir torch==2.6.0 torchaudio==2.6.0 \
+    && pip uninstall -y torchvision
 
 # Download model (cached in Docker layer)
 RUN python3 -c "\
